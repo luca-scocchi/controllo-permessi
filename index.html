@@ -369,6 +369,7 @@ pre{white-space:pre-wrap;font:12px/1.55 "IBM Plex Mono",Consolas,monospace;color
         <div class="x-ico"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13l4 5M12 13l-4 5"/></svg></div>
         <div style="min-width:0"><div class="x-name" id="xName">Caricamento…</div><div class="x-meta" id="xMeta"></div></div>
       </div>
+      <div class="x-meta" id="xPend" style="color:var(--wa);padding:8px 4px 0"></div>
       <div class="x-btns">
         <label class="btn sec" style="cursor:pointer"><svg viewBox="0 0 24 24"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/></svg>Aggiorna<input type="file" id="fx" accept=".xlsx,.xls" hidden></label>
         <button class="btn sec" id="xDown" disabled><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Scarica</button>
@@ -532,6 +533,7 @@ async function loadExcel(file, remember, quando){
   }
   $('#dlEmp').innerHTML = [...employees].sort((a, b) => a[1].nome.localeCompare(b[1].nome)).map(([k, e]) => `<option value="${k}">${esc(e.nome)}</option>`).join('');
   $('#xName').textContent = file.name;
+  setTimeout(mostraModifiche);
   $('#xMeta').innerHTML = `<span class="num">${employees.size}</span> matricole · <span class="num">${permitRows.length}</span> permessi${quando?`<br>Modificato il <span class="num">${fmtDT(quando)}</span>`:''}`;
   render();
 }
@@ -547,7 +549,7 @@ async function onExcelPicked(e){
       return toast(`Registro sostituito nella cartella con ${f.name}. La versione precedente è in backup_registro.`);
     } catch(err){ return toast('Il file non è un Excel leggibile: ' + (err.message||err)); }
   }
-  loadExcel(f, true).then(()=>toast(`Registro aggiornato: ${f.name}`)).catch(err=>toast('Il file non è un Excel leggibile: '+err.message));
+  loadExcel(f, true).then(()=>{ segnaModifica(0); toast(`Registro aggiornato: ${f.name}`); }).catch(err=>toast('Il file non è un Excel leggibile: '+err.message));
 }
 $('#fx').onchange = onExcelPicked;
 $('#xDown').onclick = () => {
@@ -556,6 +558,7 @@ $('#xDown').onclick = () => {
   a.href = URL.createObjectURL(new Blob([excelBuf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
   a.download = excelName || DEFAULT_XLSX; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  segnaModifica(0);
 };
 
 /* ---------- lettura foto (OCR) ---------- */
@@ -990,11 +993,11 @@ function openReg(){
     <button class="icon-btn close" data-pay="close" aria-label="Chiudi">${ICON.x}</button>
     <h2 id="payH">Aggiungi al registro</h2>
     <p>${apiOk ? `I permessi selezionati vengono scritti come nuove righe nel Foglio1 di ${esc(DEFAULT_XLSX)}. Prima viene salvata una copia del file in backup_registro.`
-               : `I permessi selezionati vengono aggiunti come nuove righe nel Foglio1 del registro. Poi scarichi il registro aggiornato: usalo al posto del file vecchio.`}</p>
+               : `I permessi selezionati vengono aggiunti come nuove righe nel Foglio1 del registro salvato nell'app.`}</p>
     <div class="err" id="regErr"></div>
     <div class="reg-l">${items}</div>
     <button class="btn pri" data-pay="reg" ${n?'':'disabled'}>${n ? `Aggiungi ${plur(n,'permesso','permessi')}` : 'Nessun permesso da aggiungere'}</button>
-    <p class="note">${apiOk ? 'Il file deve essere chiuso in Excel.' : 'Il registro salvato nell\'app viene aggiornato subito.'}</p>
+    <p class="note">${apiOk ? 'Il file deve essere chiuso in Excel.' : 'Il file Excel lo ottieni quando vuoi con Scarica, nella barra laterale.'}</p>
   </div>`;
   $('#pay').classList.add('on');
   updRegBtn();
@@ -1033,6 +1036,16 @@ function scaricaFile(buf, name){
   a.href = URL.createObjectURL(new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
   a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
 }
+// online il registro vive nel browser: tengo il conto delle modifiche non ancora scaricate come file
+let daScaricare = (() => { try { return +localStorage.getItem('spaziConfinati.daScaricare') || 0; } catch(e){ return 0; } })();
+function segnaModifica(n = 1){ daScaricare = n ? daScaricare + n : 0; try { localStorage.setItem('spaziConfinati.daScaricare', daScaricare); } catch(e){} mostraModifiche(); }
+function mostraModifiche(){
+  const b = $('#xDown'), el = $('#xPend');
+  if (!b || !el) return;
+  const n = apiOk ? 0 : daScaricare;
+  b.className = 'btn ' + (n ? 'pri' : 'sec');
+  el.textContent = n ? `${plur(n, 'modifica non ancora scaricata', 'modifiche non ancora scaricate')}. Premi Scarica per avere il file aggiornato.` : '';
+}
 /* ---------- nuova persona nel registro (foglio delle matricole) ---------- */
 let nuovoAperto = '', nuovoCodice = '';
 function formNuovo(i, j, r){
@@ -1043,7 +1056,7 @@ function formNuovo(i, j, r){
     <label>Nome e cognome<input id="nNome" autocomplete="off" placeholder="Come nel registro, es. ROSSI MARIO"></label>
     <label>Inizio esperienza<input type="date" id="nData"></label>
     <div class="nerr" id="nErr"></div>
-    <div class="nb"><span class="x-meta">Viene aggiunta una riga al foglio delle matricole${apiOk ? ' del file nella cartella' : ' e scaricato il registro aggiornato'}. Senza data di inizio esperienza la persona conta come meno di 3 anni.</span>
+    <div class="nb"><span class="x-meta">Viene aggiunta una riga al foglio delle matricole. Senza data di inizio esperienza la persona conta come meno di 3 anni.</span>
       <button class="btn" data-act="nuovoNo" data-i="${i}" data-j="${j}">Annulla</button>
       <button class="btn pri" data-act="nuovoOk" data-i="${i}" data-j="${j}">Aggiungi al registro</button></div>
   </div>`;
@@ -1066,13 +1079,12 @@ async function salvaNuovo(i, j, b){
       await loadFromFolder();
     } else {
       await loadExcel({name: excelName || DEFAULT_XLSX, arrayBuffer: async () => out}, true);
-      scaricaFile(out, excelName || DEFAULT_XLSX);
+      segnaModifica();
     }
     results[i].codes[j].code = code;
     nuovoAperto = ''; nuovoCodice = '';
     render(); saveSession();
-    toast(apiOk ? `${nome} aggiunto al registro con la matricola ${code}.`
-                : `${nome} aggiunto al registro. Ho scaricato il registro aggiornato: usalo al posto del file vecchio.`);
+    toast(`${nome} aggiunto al registro con la matricola ${code}.`);
   } catch(x){
     console.error(x); err.textContent = x.message; b.disabled = false; b.textContent = 'Aggiungi al registro';
   }
@@ -1245,10 +1257,10 @@ async function regInBrowser(righe, b){
     const out = await zip.generateAsync({type:'arraybuffer', compression:'DEFLATE'});
     const name = excelName || DEFAULT_XLSX;
     await loadExcel({name, arrayBuffer:async()=>out}, true);
-    scaricaFile(out, name);
+    segnaModifica();
     closePay(); saveSession();
     const sk = saltati.length ? ` Saltati: ${saltati.map(s=>`${s.permesso||'?'} (${s.motivo})`).join(', ')}.` : '';
-    toast(`${plur(aggiunti.length,'permesso aggiunto','permessi aggiunti')} al Foglio1. Registro aggiornato scaricato.${sk}`);
+    toast(`${plur(aggiunti.length,'permesso aggiunto','permessi aggiunti')} al Foglio1. ${sk}`);
     return {aggiunti, saltati};
   } catch(err){
     console.error(err);

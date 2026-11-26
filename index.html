@@ -753,6 +753,7 @@ function renderPlan(){
 let authMode = 'login';
 // arrivo dal link "reimposta password" ricevuto via email
 const DA_RECUPERO = /type=recovery/.test(location.hash);
+const DA_CONFERMA = /type=signup/.test(location.hash);
 function showAuth(msg, info){
   const m = authMode;
   const T = {
@@ -793,6 +794,13 @@ const authMsg = m => /invalid login/i.test(m) ? 'Email o password non corretti.'
   : /email/i.test(m) && /invalid/i.test(m) ? 'L\'email non è valida.'
   : /fetch|network/i.test(m) ? 'Nessuna connessione. Controlla internet e riprova.'
   : m;
+let daConfermare = '';
+async function rimandaConferma(){
+  const {error} = await sb.auth.resend({type:'signup', email: daConfermare, options:{emailRedirectTo: location.origin + location.pathname}});
+  $('#authErr').textContent = '';
+  $('#authOk').textContent = error ? '' : `Email di conferma inviata di nuovo a ${daConfermare}.`;
+  if (error) $('#authErr').textContent = /rate|seconds|frequen/i.test(error.message) ? "Hai appena chiesto un'email: aspetta un minuto e riprova." : authMsg(error.message);
+}
 async function doAuth(e){
   e.preventDefault();
   const m = authMode, err = $('#authErr'), ok = $('#authOk'), b = $('#aGo');
@@ -809,9 +817,20 @@ async function doAuth(e){
     ok.textContent = 'Se l\'email corrisponde a un account, tra poco ricevi il link. Controlla anche lo spam.';
     return;
   }
-  const {error} = m === 'signup' ? await sb.auth.signUp({email, password})
+  const {data, error} = m === 'signup' ? await sb.auth.signUp({email, password, options:{emailRedirectTo: location.origin + location.pathname}})
     : m === 'newpwd' ? await sb.auth.updateUser({password})
     : await sb.auth.signInWithPassword({email, password});
+  if (error && /not confirmed/i.test(error.message)){
+    b.disabled = false; daConfermare = email;
+    err.innerHTML = `Devi prima confermare l'email: apri il link che ti abbiamo mandato. <button type="button" id="aResend" style="color:inherit;font-weight:600;text-decoration:underline">Rimanda l'email</button>`;
+    $('#aResend').onclick = rimandaConferma;
+    return;
+  }
+  if (!error && m === 'signup' && !data?.session){
+    daConfermare = email; authMode = 'login';
+    showAuth('', `Ti abbiamo mandato un'email a ${email}. Apri il link per confermare l'indirizzo ed entrare. Controlla anche lo spam.`);
+    return;
+  }
   if (error){ err.textContent = /same|different/i.test(error.message) ? 'La nuova password deve essere diversa da quella vecchia.' : authMsg(error.message); b.disabled = false; return; }
   if (m === 'newpwd'){ history.replaceState(null, '', location.pathname + location.search); authMode = 'login'; }
   try { await loadAccount(); hideAuth(); if (m === 'newpwd') toast('Password cambiata.'); sincronizzaPagamenti(); }
@@ -831,7 +850,8 @@ async function initAuth(){
     authMode = 'newpwd';
     return session ? showAuth() : (authMode = 'reset', showAuth('Il link non è più valido. Chiedine uno nuovo.'));
   }
-  if (!session) return showAuth();
+  if (!session) return showAuth(DA_CONFERMA ? "Il link di conferma non è più valido: accedi e chiedi di rimandare l'email." : '');
+  if (DA_CONFERMA){ history.replaceState(null, '', location.pathname + location.search); toast('Email confermata.'); }
   try { await loadAccount(); }
   catch(e){ return showAuth('Sessione scaduta: accedi di nuovo.'); }
   sincronizzaPagamenti();

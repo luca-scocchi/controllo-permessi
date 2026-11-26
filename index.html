@@ -259,6 +259,17 @@ input{caret-color:var(--fg)}
 .fixhint:empty{display:none}
 .fixhint b{color:var(--fg);font-weight:600}
 .fixhint.no{color:var(--ko)}
+.fixhint .lnk2,.fixrow .lnk2{color:var(--fg);font-weight:600;text-decoration:underline;text-underline-offset:3px;font-size:13px}
+.nuovo{flex-basis:100%;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;grid-template-columns:150px 1fr 170px;gap:10px;align-items:end}
+.nuovo label{font-size:12.5px;font-weight:600;color:var(--mut);display:flex;flex-direction:column;gap:4px}
+.nuovo input{height:36px;border:1px solid var(--line);border-radius:10px;padding:0 10px;background:var(--bg);font-size:14px;width:100%}
+.nuovo input:focus{border-color:var(--fg)}
+.nuovo .nb{grid-column:1/-1;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.issue .nuovo .btn{margin:0}
+.issue .nuovo .btn.pri{background:var(--pri);color:var(--pri-fg);border-color:var(--pri)}
+.nuovo .x-meta{flex:1;min-width:200px}
+.nuovo .nerr{grid-column:1/-1;color:var(--ko);font-size:13px}
+.nuovo .nerr:empty{display:none}
 .okline{display:flex;align-items:center;gap:8px;color:var(--ok);font-size:14px;font-weight:500;margin-bottom:14px}
 .okline svg{width:17px;height:17px}
 
@@ -340,6 +351,7 @@ pre{white-space:pre-wrap;font:12px/1.55 "IBM Plex Mono",Consolas,monospace;color
   .issue .fixrow .btn{margin-left:0}
   .fixrow{padding-left:0}
   .fixin{min-width:100%}
+  .nuovo{grid-template-columns:1fr}
   .hist-l{columns:1}
 }
 </style>
@@ -1016,6 +1028,105 @@ async function sendReg(b){
   }
 }
 
+/* ---------- nuova persona nel registro (foglio delle matricole) ---------- */
+let nuovoAperto = '', nuovoCodice = '';
+function formNuovo(i, j, r){
+  const letto = (r.codes[j]?.code || '').replace(/\D/g, '');
+  const code = nuovoCodice || (letto.length === 8 && !employees.has(letto) ? letto : '');
+  return `<div class="nuovo">
+    <label>Matricola<input class="mono" id="nCode" value="${esc(code)}" inputmode="numeric" maxlength="8" placeholder="60xxxxxx"></label>
+    <label>Nome e cognome<input id="nNome" autocomplete="off" placeholder="Come nel registro, es. ROSSI MARIO"></label>
+    <label>Inizio esperienza<input type="date" id="nData"></label>
+    <div class="nerr" id="nErr"></div>
+    <div class="nb"><span class="x-meta">Viene aggiunta una riga al foglio delle matricole. Senza data di inizio esperienza la persona conta come meno di 3 anni.</span>
+      <button class="btn" data-act="nuovoNo" data-i="${i}" data-j="${j}">Annulla</button>
+      <button class="btn pri" data-act="nuovoOk" data-i="${i}" data-j="${j}">Aggiungi al registro</button></div>
+  </div>`;
+}
+async function salvaNuovo(i, j, b){
+  const code = $('#nCode').value.replace(/\D/g, ''), nome = $('#nNome').value.trim().toUpperCase().replace(/\s+/g, ' '), data = $('#nData').value;
+  const err = $('#nErr'); err.textContent = '';
+  if (!/^\d{8}$/.test(code)) return err.textContent = 'La matricola deve avere 8 cifre.';
+  if (employees.has(code)) return err.textContent = `La matricola ${code} è già nel registro: ${employees.get(code).nome}.`;
+  if (!nome) return err.textContent = 'Scrivi nome e cognome.';
+  b.disabled = true; b.textContent = 'Salvataggio…';
+  try {
+    const out = await aggiungiDipendenteXlsx(code, nome, data);
+    if (apiOk){
+      const res = await fetch('api/registro', {method:'POST', body:new Blob([out])});
+      const jr = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(jr.errore || 'Salvataggio non riuscito.');
+      await loadFromFolder();
+    } else {
+      await loadExcel({name: excelName || DEFAULT_XLSX, arrayBuffer: async () => out}, true);
+    }
+    results[i].codes[j].code = code;
+    nuovoAperto = ''; nuovoCodice = '';
+    render(); saveSession();
+    toast(`${nome} aggiunto al registro con la matricola ${code}.` + (apiOk ? '' : ' Con "Scarica" ottieni il file aggiornato.'));
+  } catch(x){
+    console.error(x); err.textContent = x.message; b.disabled = false; b.textContent = 'Aggiungi al registro';
+  }
+}
+// aggiunge una riga al foglio con l'intestazione "matricola", copiando stile della riga sopra e allargando la tabella
+async function aggiungiDipendenteXlsx(code, nome, dataIso){
+  if (!excelBuf) throw new Error('Nessun registro caricato.');
+  const zip = await JSZip.loadAsync(excelBuf);
+  const wbX = await zip.file('xl/workbook.xml').async('string');
+  const rels = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+  const wbS = XLSX.read(excelBuf, {sheetRows:30});
+  let sh = null, hdr = 0, col = {};
+  for (const name of wbS.SheetNames){
+    const ws = wbS.Sheets[name];
+    for (const a of Object.keys(ws)){ if (a[0]==='!') continue;
+      if (/matricola/i.test(String(ws[a].v))){ sh = name; hdr = XLSX.utils.decode_cell(a).r + 1; break; } }
+    if (sh){
+      for (const a of Object.keys(ws)){ if (a[0]==='!') continue; const c = XLSX.utils.decode_cell(a); if (c.r+1 !== hdr) continue;
+        const v = String(ws[a].v).toLowerCase(), L = colL(c.c+1);
+        if (v.includes('matricola')) col.m = L; else if (v.includes('dipendente') || v.includes('nom')) col.n = L; else if (v.includes('esperienza') || v.includes('data')) col.d = L; }
+      break;
+    }
+  }
+  if (!sh || !col.m || !col.n) throw new Error('Nel registro non trovo il foglio con le colonne "matricola" e "dipendente".');
+  const rid = new DOMParser().parseFromString(wbX,'application/xml').querySelector(`sheet[name="${CSS.escape(sh)}"]`)?.getAttribute('r:id');
+  const target = (rels.match(new RegExp(`<Relationship[^>]*Id="${rid}"[^>]*>`)) || [''])[0].match(/Target="([^"]+)"/)[1];
+  const path = 'xl/' + target.replace(/^\/?xl\//,'');
+  let x = await zip.file(path).async('string');
+  const rows = new Map();
+  for (const m of x.matchAll(/<row [^>]*?r="(\d+)"[^>]*?(?:\/>|>[\s\S]*?<\/row>)/g)) rows.set(+m[1], m[0]);
+  let last = hdr;
+  for (const [r, rx] of rows) if (r > hdr && new RegExp(`<c r="${col.m}${r}"[^>]*>\\s*<v>`).test(rx)) last = Math.max(last, r);
+  const tpl = rows.get(last) || '';
+  const st = L => ((tpl.match(new RegExp(`<c r="${L}${last}"([^>]*?)/?>`)) || [])[1] || '').match(/ s="\d+"/)?.[0] || '';
+  const r = last + 1;
+  const cells = [
+    `<c r="${col.m}${r}"${st(col.m)}><v>${code}</v></c>`,
+    `<c r="${col.n}${r}"${st(col.n)} t="inlineStr"><is><t>${xmlEsc(nome)}</t></is></c>`,
+    col.d ? (dataIso ? `<c r="${col.d}${r}"${st(col.d)}><v>${serial(dataIso)}</v></c>` : `<c r="${col.d}${r}"${st(col.d)}/>`) : '',
+  ].sort((a, b) => colN(a.match(/r="([A-Z]+)/)[1]) - colN(b.match(/r="([A-Z]+)/)[1])).join('');
+  const attrs = ((tpl.match(/<row ([^>]*?)\/?>/) || [])[1] || `r="${r}"`).replace(/\br="\d+"/, `r="${r}"`).replace(/\s*spans="[^"]*"/, '').replace(/\/$/, '');
+  const newRow = `<row ${attrs}>${cells}</row>`;
+  if (rows.has(r)) x = x.replace(rows.get(r), newRow);
+  else {
+    const after = [...rows.keys()].filter(k => k > r).sort((a, b) => a - b)[0];
+    x = after ? x.replace(rows.get(after), newRow + rows.get(after)) : x.replace('</sheetData>', newRow + '</sheetData>');
+  }
+  x = x.replace(/<dimension ref="([A-Z]+\d+):([A-Z]+)(\d+)"\/>/, (all, a, c, n) => `<dimension ref="${a}:${c}${Math.max(+n, r)}"/>`);
+  zip.file(path, x);
+  const relPath = path.replace(/worksheets\/([^/]+)$/, 'worksheets/_rels/$1.rels');
+  const sRels = zip.file(relPath) ? await zip.file(relPath).async('string') : '';
+  for (const m of sRels.matchAll(/Target="([^"]*tables\/[^"]+)"/g)){
+    const tp = 'xl/tables/' + m[1].split('/').pop(); let t = await zip.file(tp)?.async('string'); if (!t) continue;
+    const ref = t.match(/<table [^>]*\bref="([A-Z]+)(\d+):([A-Z]+)(\d+)"/);
+    if (ref && +ref[2] === hdr && +ref[4] < r){
+      const nr = `${ref[1]}${ref[2]}:${ref[3]}${r}`;
+      t = t.replace(/(<table [^>]*\bref=")[^"]+"/, `$1${nr}"`).replace(/(<autoFilter [^>]*\bref=")[^"]+"/, `$1${nr}"`);
+      zip.file(tp, t);
+    }
+  }
+  return zip.generateAsync({type:'arraybuffer', compression:'DEFLATE'});
+}
+
 /* Senza server (app online): il file .xlsx viene modificato direttamente nel browser.
    Si toccano solo le righe nuove del Foglio1, la tabella e il ricalcolo: stili, formule e il resto restano come sono. */
 const colN = l => [...l].reduce((n,c)=>n*26 + c.charCodeAt(0)-64, 0);
@@ -1261,6 +1372,7 @@ function permitCard(r, i){
               ${x.fix ? `<button class="btn" data-act="fix" data-i="${i}" data-j="${x.fix.j}" data-code="${x.fix.code}">Usa ${x.fix.code} · ${esc(x.fix.nome)}</button><span class="or">oppure</span>` : ''}
               <div class="fixin"><input class="mono" list="dlEmp" placeholder="Matricola o nome" inputmode="text" autocomplete="off" data-act="fixin" data-i="${i}" data-j="${x.j}" aria-label="Matricola corretta"><button class="btn" data-act="fixgo" data-i="${i}" data-j="${x.j}">Inserisci</button></div>
               <div class="fixhint" data-hint="${i}-${x.j}"></div>
+              ${nuovoAperto === `${i}-${x.j}` ? formNuovo(i, x.j, r) : `<button class="lnk2" data-act="nuovo" data-i="${i}" data-j="${x.j}">Persona nuova? Aggiungila al registro</button>`}
             </div>
           </div>`).join('')}</div>`
     : `<div class="okline">${ICON.check}Tutte le matricole sono nel registro, almeno il 30% ha 3 anni di esperienza e i nominativi coincidono con il Foglio1.</div>`;
@@ -1324,11 +1436,15 @@ $('#view').addEventListener('click', e => {
   if (busy) return;
   if (a==='fix'){ results[i].codes[+t.dataset.j].code = t.dataset.code; render(); return saveSession(); }
   if (a==='fixgo') return applicaFix(i, +t.dataset.j);
+  if (a==='nuovo'){ nuovoAperto = `${i}-${t.dataset.j}`; nuovoCodice = t.dataset.code || ''; render(); setTimeout(() => $(`#nNome`)?.focus(), 30); return; }
+  if (a==='nuovoNo'){ nuovoAperto = ''; return render(); }
+  if (a==='nuovoOk') return salvaNuovo(i, +t.dataset.j, t);
   if (a==='del'){ results[i].codes.splice(+t.dataset.j,1); render(); return saveSession(); }
   if (a==='add'){ results[i].codes.push({code:'', ruolo:'Addetto'}); render(); saveSession();
     const ins = document.querySelectorAll(`[data-act="code"][data-i="${i}"]`); ins[ins.length-1]?.focus(); }
 });
 $('#view').addEventListener('keydown', e => {
+  if (e.key==='Enter' && e.target.closest('.nuovo')){ e.preventDefault(); return e.target.closest('.nuovo').querySelector('[data-act="nuovoOk"]').click(); }
   if (e.key==='Enter' && e.target.dataset.act==='fixin'){ e.preventDefault(); return applicaFix(+e.target.dataset.i, +e.target.dataset.j); }
   if (e.key==='Enter' && e.target.matches('input')) e.target.blur();
   if ((e.key==='Enter'||e.key===' ') && e.target.matches('.drop')){ e.preventDefault(); $('#fi').click(); }
@@ -1353,7 +1469,7 @@ function hintFix(inp){
   if (r.vuoto) el.innerHTML = '';
   else if (r.code && r.nome) el.innerHTML = `<b>${esc(r.nome)}</b> · <span class="num">${r.code}</span>`;
   else if (r.code && r.parziale) el.innerHTML = '';
-  else if (r.code){ el.className = 'fixhint no'; el.textContent = `La matricola ${r.code} non è nel registro.`; }
+  else if (r.code){ el.className = 'fixhint no'; el.innerHTML = `La matricola ${r.code} non è nel registro. <button class="lnk2" data-act="nuovo" data-i="${inp.dataset.i}" data-j="${inp.dataset.j}" data-code="${r.code}">Aggiungila al registro</button>`; }
   else if (r.multi){ el.textContent = `${r.multi} persone: ${r.nomi.join(', ')}${r.multi > 4 ? '…' : ''}. Scrivi di più o scegli dall'elenco.`; }
   else { el.className = 'fixhint no'; el.textContent = 'Nessuna persona con questo nome nel registro.'; }
 }

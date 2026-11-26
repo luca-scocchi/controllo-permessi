@@ -732,7 +732,8 @@ function renderPlan(){
     const t = account.piano === 'gratis' ? 'Accesso gratuito' : `Piano ${NOME_PIANO[account.piano]}`;
     const m = account.piano === 'gratis' ? 'Permessi senza limiti' : `Attivo fino al ${fmtD(new Date(account.attivo_fino))}`;
     el.className = 'plan on';
-    el.innerHTML = `<div class="pt">${t}<span>Attivo</span></div><div class="x-meta" style="margin-top:2px">${m}</div>${esci}`;
+    el.innerHTML = `<div class="pt">${t}<span>Attivo</span></div><div class="x-meta" style="margin:2px 0 8px">${m}</div>${account.piano !== 'gratis' ? '<button class="btn sec" id="portal">Gestisci abbonamento</button>' : ''}${esci}`;
+    if ($('#portal')) $('#portal').onclick = e => apriPortale(e.currentTarget);
   } else {
     const r = rimasti();
     el.className = 'plan' + (r ? '' : ' empty');
@@ -781,7 +782,7 @@ async function doAuth(e){
     ? await sb.auth.signUp({email, password})
     : await sb.auth.signInWithPassword({email, password});
   if (error){ err.textContent = authMsg(error.message); b.disabled = false; return; }
-  try { await loadAccount(); hideAuth(); }
+  try { await loadAccount(); hideAuth(); sincronizzaPagamenti(); }
   catch(x){ err.textContent = 'Accesso riuscito ma non riesco a leggere l\'account: ' + x.message; b.disabled = false; }
 }
 async function loadAccount(){
@@ -796,7 +797,8 @@ async function initAuth(){
   const {data:{session}} = await sb.auth.getSession();
   if (!session) return showAuth();
   try { await loadAccount(); }
-  catch(e){ showAuth('Sessione scaduta: accedi di nuovo.'); }
+  catch(e){ return showAuth('Sessione scaduta: accedi di nuovo.'); }
+  sincronizzaPagamenti();
 }
 // prima di analizzare: il server scala i permessi dalla prova (o dà il via libera se il piano è attivo)
 async function chiediPermessi(n){
@@ -822,8 +824,9 @@ function openPay(richieste){
     <div class="plans">${Object.entries(PIANI).map(([k,v])=>`<label class="pl"><input type="radio" name="piano" value="${k}" ${k==='anno'?'checked':''}>
       <div class="n">${v.nome}</div><div class="pr num">${v.prezzo}<small>${v.per}</small></div><div class="d">${v.d}</div></label>`).join('')}</div>
     <ul class="inc">${['Permessi senza limiti','Cronologia delle analisi','Esportazione dei risultati in Excel','Disdetta in qualsiasi momento'].map(t=>`<li>${ICON.check}${t}</li>`).join('')}</ul>
-    <button class="btn pri" data-pay="buy" disabled>Pagamento online non ancora disponibile</button>
-    <p class="note">Il pagamento con carta verrà attivato a breve.</p>
+    <div class="err" id="payErr"></div>
+    <button class="btn pri" data-pay="buy">Paga e attiva</button>
+    <p class="note">Pagamento con carta tramite Stripe. Puoi disdire quando vuoi da "Gestisci abbonamento".</p>
   </div>`;
   $('#pay').classList.add('on');
 }
@@ -831,7 +834,42 @@ const closePay = () => $('#pay').classList.remove('on');
 $('#pay').addEventListener('click', e => {
   if (e.target.id === 'pay' || e.target.closest('[data-pay="close"]')) return closePay();
   const rb = e.target.closest('[data-pay="reg"]'); if (rb) return sendReg(rb);
+  const bb = e.target.closest('[data-pay="buy"]'); if (bb) return vaiAlPagamento(bb);
 });
+async function pagamenti(body){
+  const {data, error} = await sb.functions.invoke('pagamenti', {body});
+  if (error){
+    let m = error.message;
+    try { m = (await error.context.json()).errore || m; } catch(e){}
+    throw new Error(m);
+  }
+  return data;
+}
+async function vaiAlPagamento(b){
+  const piano = $('#pay input[name="piano"]:checked').value, err = $('#payErr');
+  b.disabled = true; b.innerHTML = '<span class="spin"></span>Apertura del pagamento…'; err.style.display = 'none';
+  try { const {url} = await pagamenti({azione:'checkout', piano}); location.href = url; }
+  catch(x){ err.textContent = x.message; err.style.display = 'block'; b.disabled = false; b.textContent = 'Paga e attiva'; }
+}
+async function apriPortale(b){
+  b.disabled = true;
+  try { const {url} = await pagamenti({azione:'portale'}); location.href = url; }
+  catch(x){ toast(x.message); b.disabled = false; }
+}
+// ritorno dalla pagina di pagamento e rinnovi: legge lo stato da Stripe
+async function sincronizzaPagamenti(){
+  const q = new URLSearchParams(location.search), esito = q.get('pagamento');
+  if (esito){ q.delete('pagamento'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); }
+  if (esito === 'annullato') toast('Pagamento annullato: non è stato addebitato nulla.');
+  if (esito !== 'ok' && !['mensile','annuale'].includes(account?.piano)) return;
+  try {
+    await pagamenti({azione:'sincronizza'});
+    const prima = account?.attivo;
+    await loadAccount();
+    if (esito === 'ok') toast(account.attivo ? `Abbonamento ${NOME_PIANO[account.piano] || ''} attivo. Permessi senza limiti.` : 'Pagamento ricevuto: l\'attivazione può richiedere qualche secondo, ricarica la pagina.');
+    else if (prima && !account.attivo) toast('L\'abbonamento è scaduto.');
+  } catch(e){ if (esito === 'ok') toast('Non riesco a verificare il pagamento: ' + e.message); }
+}
 initAuth();
 
 /* ---------- aggiunta dei permessi al Foglio1 (tramite server.py) ---------- */

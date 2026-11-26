@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Controllo permessi spazi confinati</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cstyle%3Erect%7Bfill:%230d0d0d%7Dpath%7Bstroke:%23fff%7D%40media (prefers-color-scheme:dark)%7Brect%7Bfill:%23ececec%7Dpath%7Bstroke:%230d0d0d%7D%7D%3C/style%3E%3Crect width='32' height='32' rx='8'/%3E%3Cpath d='M8.5 16.5l5 5 10-11' fill='none' stroke-width='3.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="data:image/png;base64,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">
@@ -70,7 +70,7 @@ input{caret-color:var(--fg)}
 .icon-btn:hover{background:var(--hover);color:var(--fg)}
 
 /* layout */
-.app{display:flex;height:100vh}
+.app{display:flex;height:100vh;height:100dvh}
 .side{width:264px;flex:none;background:var(--side);display:flex;flex-direction:column;padding:10px;border-right:1px solid var(--line2);transition:transform .25s cubic-bezier(.16,1,.3,1)}
 .main{flex:1;display:flex;flex-direction:column;min-width:0}
 .top{height:56px;display:flex;align-items:center;gap:8px;padding:0 16px;flex:none}
@@ -170,7 +170,7 @@ input{caret-color:var(--fg)}
 .inc svg{width:16px;height:16px;color:var(--ok)}
 .pay .btn.pri{width:100%;height:44px}
 .pay .note{font-size:12.5px;color:var(--faint);text-align:center;margin:10px 0 0}
-@media (max-width:520px){.plans{grid-template-columns:1fr}.pay{padding:20px 18px}}
+@media (max-width:359px){.plans{grid-template-columns:1fr}}
 
 /* caricamento */
 .page-h{font-size:24px;font-weight:600;letter-spacing:-.015em;margin:28px 0 4px}
@@ -190,6 +190,8 @@ input{caret-color:var(--fg)}
 .drop.compact .btn{margin:0 0 0 auto}
 .drop.compact .big{display:none}
 .drop:not(.compact) .small{display:none}
+.t-touch{display:none}
+@media (hover:none) and (pointer:coarse){.t-desk{display:none}.t-touch{display:inline}}
 .picked{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:12px;margin-top:16px}
 .ph{position:relative;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
 .ph img{display:block;width:100%;aspect-ratio:3/4;object-fit:cover;cursor:zoom-in}
@@ -356,6 +358,63 @@ pre{white-space:pre-wrap;font:12px/1.55 "IBM Plex Mono",Consolas,monospace;color
   .fixin{min-width:100%}
   .nuovo{grid-template-columns:1fr}
   .hist-l{columns:1}
+  /* barra laterale */
+  .side{width:min(300px,86vw);padding:calc(10px + env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom))}
+  .nav-btn{padding:12px 10px}
+  .h-item{padding:10px 40px 10px 10px}
+  .h-del{display:grid;width:34px;height:34px}
+  .x-btns .btn,.plan .btn{height:40px}
+  .top{padding:0 10px;padding-top:env(safe-area-inset-top);height:calc(56px + env(safe-area-inset-top))}
+  .icon-btn{width:40px;height:40px}
+  .wrap{padding-bottom:calc(40px + env(safe-area-inset-bottom))}
+  /* niente zoom automatico di iOS: campi a 16px e alti almeno 44px */
+  input,.mono{font-size:16px}
+  .fixin input,.fields input,.ptab input,.nuovo input,.reg-i .capo input{height:44px;font-size:16px}
+  .ptab input{width:150px}
+  .btn{height:44px}
+  .btn.sm,.btn.txt{height:40px}
+  .issue .btn{height:40px}
+  .del{width:40px;height:40px}
+  /* caricamento */
+  .go-bar .info{width:100%;margin:0}
+  .go-bar .btn.txt{margin-right:auto}
+  .go-bar .btn.pri{flex:1}
+  .drop.compact .btn{width:44px;padding:0}
+  .ph button{width:32px;height:32px}
+  .ph button svg{width:15px;height:15px}
+  .banner{flex-wrap:wrap}
+  .banner .btn{margin-left:30px}
+  /* risultati */
+  .res-head .acts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .res-head .acts .btn{padding:0 10px;font-size:14px}
+  .res-head .acts .btn.pri{grid-column:1/-1;grid-row:1}
+  .res-head .acts .btn:first-child:nth-last-child(2){grid-column:1/-1}
+  .filters{flex-wrap:nowrap;overflow-x:auto;margin:0 -14px 14px;padding:0 14px;scrollbar-width:none}
+  .filters::-webkit-scrollbar{display:none}
+  .flt{flex:none;height:38px}
+  .pm-m{white-space:normal}
+  .pm-head img{width:36px;height:48px}
+  .badge{height:28px}
+  .fields{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
+  .fields input{width:100%}
+  .fields label:has(.lnk){grid-column:1/-1}
+  .fields .lnk{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+  .fixrow{gap:10px}
+  .fixrow .btn[data-act="fix"]{white-space:normal;height:auto;min-height:40px;padding:8px 14px;text-align:left;line-height:1.3}
+  .fixin .btn{height:44px}
+  .lnk2{padding:6px 0}
+  .nuovo .nb .x-meta{flex-basis:100%;min-width:0}
+  .nuovo .nb .btn{flex:1}
+  .more summary{padding:12px 0}
+  /* finestre: dal basso, come un foglio */
+  #pay{align-items:flex-end;padding:0}
+  .pay{border-radius:20px 20px 0 0;max-height:92dvh;padding:22px 16px calc(18px + env(safe-area-inset-bottom))}
+  .pay .close{top:12px;right:10px}
+  .pl{padding:12px 14px}
+  .pl .pr{font-size:22px}
+  .toast{bottom:calc(16px + env(safe-area-inset-bottom))}
+  #auth{align-items:flex-start;padding:calc(48px + env(safe-area-inset-top)) 20px 24px}
+  .auth input{font-size:16px}
 }
 </style>
 </head>
@@ -1448,8 +1507,8 @@ function viewUpload(){
     ${noXl ? `<div class="banner">${ICON.alert}<span>Manca il registro Excel: caricalo per controllare le matricole.</span><label class="btn sec sm" style="cursor:pointer">Carica Excel<input type="file" accept=".xlsx,.xls" hidden data-act="xl"></label></div>` : ''}
     <div class="drop${n?' compact':''}" data-act="pick" role="button" tabindex="0" aria-label="Scegli le foto">
       <div class="ic">${ICON.img}</div>
-      <div class="big"><b>Trascina qui le foto</b><br><span class="hint">oppure</span></div>
-      <div class="small"><b>Aggiungi altre foto</b><br><span class="hint">Trascinale qui o usa il pulsante</span></div>
+      <div class="big"><b class="t-desk">Trascina qui le foto</b><b class="t-touch">Scatta o scegli le foto</b><br><span class="hint t-desk">oppure</span><span class="hint t-touch">Dalla fotocamera o dalla galleria</span></div>
+      <div class="small"><b>Aggiungi altre foto</b><br><span class="hint t-desk">Trascinale qui o usa il pulsante</span><span class="hint t-touch">Dalla fotocamera o dalla galleria</span></div>
       <span class="btn ${n?'sec sm':'pri'}">${ICON.plus}<span>Scegli foto</span></span>
     </div>
     ${n ? `

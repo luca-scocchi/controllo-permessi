@@ -410,6 +410,16 @@ pre{white-space:pre-wrap;font:12px/1.55 "IBM Plex Mono",Consolas,monospace;color
   #pay{align-items:flex-end;padding:0}
   .pay{border-radius:20px 20px 0 0;max-height:92dvh;padding:22px 16px calc(18px + env(safe-area-inset-bottom))}
   .pay .close{top:12px;right:10px}
+  /* schermi stretti o testo di sistema ingrandito: niente deve uscire dallo schermo */
+  .main,.wrap,.res-head>div,.pm,.pm-body,.issue,.issue>span,.fixrow,.go-bar,.drop.compact>div{min-width:0}
+  .page-h,.page-s,.issue span,.pm-n{overflow-wrap:anywhere}
+  .res-head .acts .btn,.go-bar .btn.pri,.banner .btn,.fixrow .btn[data-act="fix"]{min-width:0;white-space:normal;height:auto;min-height:44px;line-height:1.2;padding-top:6px;padding-bottom:6px;text-align:center}
+  .fixin{min-width:0;width:100%;max-width:none;flex:1 1 100%}
+  .fixin input{width:100%}
+  .fixin .btn{flex:none}
+  .pm-head{flex-wrap:wrap}
+  .pm-id{flex:1 1 140px}
+  .drop.compact{padding:12px 14px}
   .pl{padding:12px 14px}
   .pl .pr{font-size:22px}
   .toast{bottom:calc(16px + env(safe-area-inset-bottom))}

@@ -243,6 +243,22 @@ input{caret-color:var(--fg)}
 .issue.ko{background:var(--kobg)}.issue.ko svg{color:var(--ko)}
 .issue .btn{margin-left:auto;background:var(--card);border:1px solid var(--line);height:30px;font-size:13px;padding:0 12px}
 .issue .btn:hover{background:var(--hover)}
+.issue.mat{flex-direction:column;align-items:stretch;gap:8px}
+.issue.mat .it{display:flex;gap:10px;align-items:flex-start}
+.issue.mat .it span{flex:1}
+.fixrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding-left:27px}
+.issue .fixrow .btn{margin-left:0}
+.fixrow .or{font-size:13px;color:var(--mut)}
+.fixin{display:flex;align-items:center;gap:6px;flex:1;min-width:240px;max-width:420px}
+.fixin input{flex:1;min-width:0;height:34px;border:1px solid var(--line);border-radius:999px;padding:0 14px;background:var(--card);font-size:14px}
+.fixin input:focus{border-color:var(--fg)}
+.fixin input::placeholder{font-family:"Instrument Sans","Segoe UI",system-ui,sans-serif;color:var(--faint)}
+.issue .fixin .btn{background:var(--pri);color:var(--pri-fg);border-color:var(--pri)}
+.issue .fixin .btn:hover{background:var(--pri-h)}
+.fixhint{flex-basis:100%;font-size:13px;color:var(--mut);min-height:0}
+.fixhint:empty{display:none}
+.fixhint b{color:var(--fg);font-weight:600}
+.fixhint.no{color:var(--ko)}
 .okline{display:flex;align-items:center;gap:8px;color:var(--ok);font-size:14px;font-weight:500;margin-bottom:14px}
 .okline svg{width:17px;height:17px}
 
@@ -321,6 +337,9 @@ pre{white-space:pre-wrap;font:12px/1.55 "IBM Plex Mono",Consolas,monospace;color
   .ptab td.c-yrs{text-align:right}
   .issue{flex-wrap:wrap}
   .issue .btn{margin-left:27px}
+  .issue .fixrow .btn{margin-left:0}
+  .fixrow{padding-left:0}
+  .fixin{min-width:100%}
   .hist-l{columns:1}
 }
 </style>
@@ -363,6 +382,7 @@ pre{white-space:pre-wrap;font:12px/1.55 "IBM Plex Mono",Consolas,monospace;color
 <div id="zoom"></div>
 <div id="pay" role="dialog" aria-modal="true" aria-labelledby="payH"></div>
 <div id="auth"></div>
+<datalist id="dlEmp"></datalist>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -498,6 +518,7 @@ async function loadExcel(file, remember, quando){
       }
     }
   }
+  $('#dlEmp').innerHTML = [...employees].sort((a, b) => a[1].nome.localeCompare(b[1].nome)).map(([k, e]) => `<option value="${k}">${esc(e.nome)}</option>`).join('');
   $('#xName').textContent = file.name;
   $('#xMeta').innerHTML = `<span class="num">${employees.size}</span> matricole · <span class="num">${permitRows.length}</span> permessi${quando?`<br>Modificato il <span class="num">${fmtDT(quando)}</span>`:''}`;
   render();
@@ -599,8 +620,8 @@ function enrich(r){
   if (r.perc!=null && r.perc<0.3) iss.push({t:'ko', m:`Solo ${r.esperti} su ${r.trovati} con almeno 3 anni di esperienza (${Math.round(r.perc*100)}%). Serve almeno il 30%.`});
   if (!r.people.length) iss.push({t:'ko', m:'Nessuna matricola letta dalla foto. Aggiungile a mano.'});
   r.people.forEach((p,j) => {
-    if (p.match==='simile') iss.push({t:'wa', m:`La matricola ${p.letto} non è nel registro. La più vicina è ${p.code} (${p.nome}).`, fix:{j, code:p.code}});
-    if (p.match==='nessuno') iss.push({t:'ko', m: p.letto ? `La matricola ${p.letto} non è nel registro. Controlla la foto e correggila.` : 'Matricola vuota: inseriscila o elimina la riga.'});
+    if (p.match==='simile') iss.push({t:'wa', j, m:`La matricola ${p.letto} non è nel registro.`, fix:{j, code:p.code, nome:p.nome}});
+    if (p.match==='nessuno') iss.push({t:'ko', j, m: p.letto ? `La matricola ${p.letto} non è nel registro.` : 'Matricola vuota.'});
   });
   if (!r.permesso) iss.push({t:'wa', m:'Numero di permesso non letto. Inseriscilo qui sotto.'});
   else if (!r.excelRow) iss.push({t:'wa', m:`Il permesso ${r.permesso} non è nel Foglio1 del registro.`});
@@ -1232,7 +1253,16 @@ function permitCard(r, i){
   const [label, ico] = STATO[r.stato];
   const meta = [fmtD(r.data), r.cn && `Costr. navale ${r.cn}`, plur(r.people.length,'persona','persone')].filter(Boolean).join(' · ');
   const issues = r.issues.length
-    ? `<div class="issues">${r.issues.map(x=>`<div class="issue ${x.t}">${x.t==='ko'?ICON.xc:ICON.alert}<span>${esc(x.m)}</span>${x.fix?`<button class="btn" data-act="fix" data-i="${i}" data-j="${x.fix.j}" data-code="${x.fix.code}">Usa ${x.fix.code}</button>`:''}</div>`).join('')}</div>`
+    ? `<div class="issues">${r.issues.map(x => x.j == null
+        ? `<div class="issue ${x.t}">${x.t==='ko'?ICON.xc:ICON.alert}<span>${esc(x.m)}</span></div>`
+        : `<div class="issue mat ${x.t}">
+            <div class="it">${x.t==='ko'?ICON.xc:ICON.alert}<span>${esc(x.m)} ${x.fix ? 'Usa quella suggerita o scrivi quella giusta.' : 'Scrivi quella giusta o il nome della persona.'}</span></div>
+            <div class="fixrow">
+              ${x.fix ? `<button class="btn" data-act="fix" data-i="${i}" data-j="${x.fix.j}" data-code="${x.fix.code}">Usa ${x.fix.code} · ${esc(x.fix.nome)}</button><span class="or">oppure</span>` : ''}
+              <div class="fixin"><input class="mono" list="dlEmp" placeholder="Matricola o nome" inputmode="text" autocomplete="off" data-act="fixin" data-i="${i}" data-j="${x.j}" aria-label="Matricola corretta"><button class="btn" data-act="fixgo" data-i="${i}" data-j="${x.j}">Inserisci</button></div>
+              <div class="fixhint" data-hint="${i}-${x.j}"></div>
+            </div>
+          </div>`).join('')}</div>`
     : `<div class="okline">${ICON.check}Tutte le matricole sono nel registro, almeno il 30% ha 3 anni di esperienza e i nominativi coincidono con il Foglio1.</div>`;
   const rows = r.people.map((p,j)=>`
     <tr>
@@ -1293,14 +1323,49 @@ $('#view').addEventListener('click', e => {
   if (a==='toggle'){ if (results[i]){ results[i]._open = !results[i]._open; render(); } return; }
   if (busy) return;
   if (a==='fix'){ results[i].codes[+t.dataset.j].code = t.dataset.code; render(); return saveSession(); }
+  if (a==='fixgo') return applicaFix(i, +t.dataset.j);
   if (a==='del'){ results[i].codes.splice(+t.dataset.j,1); render(); return saveSession(); }
   if (a==='add'){ results[i].codes.push({code:'', ruolo:'Addetto'}); render(); saveSession();
     const ins = document.querySelectorAll(`[data-act="code"][data-i="${i}"]`); ins[ins.length-1]?.focus(); }
 });
 $('#view').addEventListener('keydown', e => {
+  if (e.key==='Enter' && e.target.dataset.act==='fixin'){ e.preventDefault(); return applicaFix(+e.target.dataset.i, +e.target.dataset.j); }
   if (e.key==='Enter' && e.target.matches('input')) e.target.blur();
   if ((e.key==='Enter'||e.key===' ') && e.target.matches('.drop')){ e.preventDefault(); $('#fi').click(); }
 });
+// inserimento a mano della matricola: accetta il numero o il nome (anche parziale) della persona
+function risolviMatricola(v){
+  v = String(v || '').trim();
+  if (!v) return {vuoto:true};
+  const cifre = v.replace(/\D/g, '');
+  if (cifre && !/[A-Za-zÀ-ÿ]/.test(v)) return {code:cifre, nome: employees.get(cifre)?.nome || '', parziale: cifre.length < 8};
+  const n = norm(v);
+  const hits = [...employees].filter(([k, e]) => norm(e.nome).includes(n));
+  const tutte = hits.filter(([k, e]) => n.split(' ').every(w => norm(e.nome).split(' ').includes(w)));
+  const h = tutte.length === 1 ? tutte : hits;
+  if (h.length === 1) return {code:h[0][0], nome:h[0][1].nome};
+  return {multi:h.length, nomi:h.slice(0, 4).map(([k, e]) => e.nome)};
+}
+function hintFix(inp){
+  const el = $(`[data-hint="${inp.dataset.i}-${inp.dataset.j}"]`); if (!el) return;
+  const r = risolviMatricola(inp.value);
+  el.className = 'fixhint';
+  if (r.vuoto) el.innerHTML = '';
+  else if (r.code && r.nome) el.innerHTML = `<b>${esc(r.nome)}</b> · <span class="num">${r.code}</span>`;
+  else if (r.code && r.parziale) el.innerHTML = '';
+  else if (r.code){ el.className = 'fixhint no'; el.textContent = `La matricola ${r.code} non è nel registro.`; }
+  else if (r.multi){ el.textContent = `${r.multi} persone: ${r.nomi.join(', ')}${r.multi > 4 ? '…' : ''}. Scrivi di più o scegli dall'elenco.`; }
+  else { el.className = 'fixhint no'; el.textContent = 'Nessuna persona con questo nome nel registro.'; }
+}
+function applicaFix(i, j){
+  const inp = $(`[data-act="fixin"][data-i="${i}"][data-j="${j}"]`); if (!inp) return;
+  const r = risolviMatricola(inp.value);
+  if (!r.code){ hintFix(inp); inp.focus(); return; }
+  results[i].codes[j].code = r.code;
+  render(); saveSession();
+  toast(r.nome ? `Matricola ${r.code} inserita: ${r.nome}.` : `Matricola ${r.code} inserita, ma non è nel registro.`);
+}
+$('#view').addEventListener('input', e => { if (e.target.dataset.act === 'fixin') hintFix(e.target); });
 $('#view').addEventListener('change', e => {
   const t = e.target, i = +t.dataset.i;
   if (t.dataset.act==='xl') return onExcelPicked(e);

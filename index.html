@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
 :root{
   --bg:#ffffff; --side:#f9f9f9; --sub:#f4f4f4; --fg:#0d0d0d; --mut:#5c5c5c; --faint:#6b6b6b;
@@ -123,6 +124,24 @@ input{caret-color:var(--fg)}
 .reg-i .capo input{flex:1;min-width:0;height:32px;border:1px solid var(--line);border-radius:8px;padding:0 10px;background:var(--bg);font-size:13.5px}
 .reg-i .capo input:focus{border-color:var(--fg)}
 .pay .err{background:var(--kobg);color:var(--ko);border-radius:10px;padding:10px 12px;font-size:13.5px;margin:0 0 12px;display:none}
+/* accesso */
+#auth{position:fixed;inset:0;z-index:50;background:var(--bg);display:none;align-items:center;justify-content:center;padding:16px;overflow:auto}
+#auth.on{display:flex}
+.auth{width:100%;max-width:380px}
+.auth .mk{width:40px;height:40px;border-radius:11px;background:var(--fg);color:var(--bg);display:grid;place-items:center;margin-bottom:18px}
+.auth h1{font-size:24px;font-weight:600;letter-spacing:-.015em;margin:0 0 4px}
+.auth>p{color:var(--mut);margin:0 0 22px;font-size:14.5px}
+.auth label{display:block;font-size:13.5px;font-weight:600;margin:0 0 14px}
+.auth input{display:block;width:100%;height:44px;margin-top:6px;border:1px solid var(--line);border-radius:12px;padding:0 14px;background:var(--bg);font-size:15px;font-weight:400}
+.auth input:focus{border-color:var(--fg)}
+.auth .btn.pri{width:100%;height:44px;margin-top:4px}
+.auth .sw{margin-top:16px;font-size:14px;color:var(--mut);text-align:center}
+.auth .sw button{color:var(--fg);font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.auth .err{background:var(--kobg);color:var(--ko);border-radius:10px;padding:10px 12px;font-size:13.5px;margin:0 0 14px}
+.auth .err:empty{display:none}
+.acct{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12.5px;color:var(--faint)}
+.acct span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan .acct .btn.txt{width:auto;flex:none;height:26px;padding:0 8px;font-size:12.5px}
 /* paywall */
 #pay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:35;padding:16px}
 #pay.on{display:flex}
@@ -340,6 +359,7 @@ pre{white-space:pre-wrap;font:12px/1.55 "IBM Plex Mono",Consolas,monospace;color
 <input type="file" id="fi" accept="image/*" multiple hidden>
 <div id="zoom"></div>
 <div id="pay" role="dialog" aria-modal="true" aria-labelledby="payH"></div>
+<div id="auth"></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -692,35 +712,108 @@ addEventListener('dragleave', () => { if (--dragN<=0){ dragN=0; $('.drop')?.clas
 addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); dragN=0; $('.drop')?.classList.remove('over'); if (!busy) addImages([...e.dataTransfer.files]); });
 
-/* ---------- prova gratuita e abbonamento (demo, senza pagamento reale) ---------- */
-const PROVA_MAX = 10;
+/* ---------- account, prova gratuita e abbonamento ---------- */
+// Il conteggio dei permessi è sul server (Supabase): il browser chiede solo il permesso di procedere.
+const SB_URL = 'https://sixlejbhuwajnwospysu.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNpeGxlamJodXdham53b3NweXN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTU2Nzg0MDEsImV4cCI6MjExMTI1NDQwMX0.s8QHQRMzS9HNlmGacqmIZecNwHw8oj8SfMn0ztyLdVk';   // chiave pubblica: è fatta per stare nel browser
+const sb = window.supabase ? window.supabase.createClient(SB_URL, SB_KEY) : null;
 const PIANI = {mese:{nome:'Mensile', prezzo:'29 €', per:'/mese', d:'Rinnovo ogni mese'}, anno:{nome:'Annuale', prezzo:'290 €', per:'/anno', d:'Equivale a 24 € al mese'}};
+const NOME_PIANO = {mensile:'Mensile', annuale:'Annuale'};
 const lsGet = (k,d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch(e){ return d; } };
 const lsSet = (k,v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} };
-let usati = lsGet('spaziConfinati.prova', 0), piano = lsGet('spaziConfinati.piano', null);
-const rimasti = () => piano ? Infinity : Math.max(0, PROVA_MAX - usati);
+let account = null;   // {email, piano, usati, limite, attivo, attivo_fino}
+const rimasti = () => !account ? 0 : account.attivo ? Infinity : Math.max(0, account.limite - account.usati);
+
 function renderPlan(){
   const el = $('#plan');
-  if (piano){
+  if (!account){ el.className = 'plan'; el.innerHTML = '<div class="x-meta">Accesso in corso…</div>'; return; }
+  const esci = `<div class="acct"><span title="${esc(account.email)}">${esc(account.email)}</span><button class="btn txt" id="logout">Esci</button></div>`;
+  if (account.attivo){
+    const t = account.piano === 'gratis' ? 'Accesso gratuito' : `Piano ${NOME_PIANO[account.piano]}`;
+    const m = account.piano === 'gratis' ? 'Permessi senza limiti' : `Attivo fino al ${fmtD(new Date(account.attivo_fino))}`;
     el.className = 'plan on';
-    el.innerHTML = `<div class="pt">Piano ${PIANI[piano.tipo].nome}<span>Attivo</span></div>
-      <div class="x-meta" style="margin:4px 0 8px">Dal ${fmtD(new Date(piano.dal))}. Versione demo.</div>
-      <button class="btn txt" id="planOff">Disattiva (demo)</button>`;
-    $('#planOff').onclick = () => { piano = null; usati = PROVA_MAX; lsSet('spaziConfinati.piano', null); lsSet('spaziConfinati.prova', usati); renderPlan(); render(); };
+    el.innerHTML = `<div class="pt">${t}<span>Attivo</span></div><div class="x-meta" style="margin-top:2px">${m}</div>${esci}`;
   } else {
     const r = rimasti();
     el.className = 'plan' + (r ? '' : ' empty');
-    el.innerHTML = `<div class="pt">Prova gratuita<span class="num">${r} di ${PROVA_MAX}</span></div>
+    el.innerHTML = `<div class="pt">Prova gratuita<span class="num">${r} di ${account.limite}</span></div>
       <div class="x-meta" style="margin-top:2px">${r ? 'Permessi gratuiti rimasti' : 'Permessi gratuiti finiti'}</div>
-      <div class="bar"><i style="width:${r/PROVA_MAX*100}%"></i></div>
-      <button class="btn ${r?'sec':'pri'}" id="planGo">Attiva abbonamento</button>`;
+      <div class="bar"><i style="width:${r/account.limite*100}%"></i></div>
+      <button class="btn ${r?'sec':'pri'}" id="planGo">Attiva abbonamento</button>${esci}`;
     $('#planGo').onclick = () => openPay();
   }
+  $('#logout').onclick = async () => { await sb.auth.signOut(); account = null; showAuth(); renderPlan(); };
 }
+
+/* schermata di accesso */
+let authMode = 'login';
+function showAuth(msg){
+  const reg = authMode === 'signup';
+  $('#auth').innerHTML = `<form class="auth" id="authF" novalidate>
+    <div class="mk">${ICON.check}</div>
+    <h1>${reg ? 'Crea un account' : 'Accedi'}</h1>
+    <p>${reg ? 'I primi 10 permessi sono gratuiti.' : 'Entra con l\'email e la password del tuo account.'}</p>
+    <div class="err" id="authErr">${esc(msg || '')}</div>
+    <label>Email<input type="email" id="aEmail" autocomplete="email" required></label>
+    <label>Password<input type="password" id="aPwd" autocomplete="${reg ? 'new-password' : 'current-password'}" minlength="8" required>${reg ? '<span class="x-meta" style="font-weight:400">Almeno 8 caratteri</span>' : ''}</label>
+    <button class="btn pri" type="submit" id="aGo">${reg ? 'Crea account' : 'Accedi'}</button>
+    <div class="sw">${reg ? 'Hai già un account? <button type="button" id="aSw">Accedi</button>' : 'Non hai un account? <button type="button" id="aSw">Creane uno</button>'}</div>
+  </form>`;
+  $('#auth').classList.add('on');
+  $('#aSw').onclick = () => { authMode = reg ? 'login' : 'signup'; showAuth(); };
+  $('#authF').onsubmit = doAuth;
+  setTimeout(() => $('#aEmail')?.focus(), 50);
+}
+const hideAuth = () => $('#auth').classList.remove('on');
+const authMsg = m => /invalid login/i.test(m) ? 'Email o password non corretti.'
+  : /already registered|already exists/i.test(m) ? 'Esiste già un account con questa email: accedi.'
+  : /password/i.test(m) && /6|8|least|short|weak/i.test(m) ? 'La password deve avere almeno 8 caratteri.'
+  : /email/i.test(m) && /invalid/i.test(m) ? 'L\'email non è valida.'
+  : /fetch|network/i.test(m) ? 'Nessuna connessione. Controlla internet e riprova.'
+  : m;
+async function doAuth(e){
+  e.preventDefault();
+  const email = $('#aEmail').value.trim(), password = $('#aPwd').value, err = $('#authErr'), b = $('#aGo');
+  if (!email || !password){ err.textContent = 'Inserisci email e password.'; return; }
+  if (authMode === 'signup' && password.length < 8){ err.textContent = 'La password deve avere almeno 8 caratteri.'; return; }
+  b.disabled = true; err.textContent = '';
+  const {error} = authMode === 'signup'
+    ? await sb.auth.signUp({email, password})
+    : await sb.auth.signInWithPassword({email, password});
+  if (error){ err.textContent = authMsg(error.message); b.disabled = false; return; }
+  try { await loadAccount(); hideAuth(); }
+  catch(x){ err.textContent = 'Accesso riuscito ma non riesco a leggere l\'account: ' + x.message; b.disabled = false; }
+}
+async function loadAccount(){
+  const {data, error} = await sb.rpc('stato_account');
+  if (error) throw new Error(error.message);
+  if (!data?.ok) throw new Error(data?.errore || 'account non trovato');
+  account = data; renderPlan(); render();
+}
+async function initAuth(){
+  renderPlan();
+  if (!sb) return showAuth('Non riesco a collegarmi al servizio di accesso. Controlla internet e ricarica la pagina.');
+  const {data:{session}} = await sb.auth.getSession();
+  if (!session) return showAuth();
+  try { await loadAccount(); }
+  catch(e){ showAuth('Sessione scaduta: accedi di nuovo.'); }
+}
+// prima di analizzare: il server scala i permessi dalla prova (o dà il via libera se il piano è attivo)
+async function chiediPermessi(n){
+  if (!account){ showAuth(); return false; }
+  const {data, error} = await sb.rpc('usa_permessi', {n});
+  if (error){ toast('Non riesco a verificare l\'account: ' + authMsg(error.message)); return false; }
+  Object.assign(account, {usati: data.usati ?? account.usati, attivo: data.attivo ?? account.attivo});
+  renderPlan();
+  if (!data.ok){ openPay(n); return false; }
+  return true;
+}
+
 function openPay(richieste){
   const r = rimasti();
+  const lim = account?.limite ?? 10;
   const [h, p] = r === 0
-    ? ['Hai usato i permessi gratuiti', `La prova comprende ${PROVA_MAX} permessi. Per analizzarne altri attiva un abbonamento.`]
+    ? ['Hai usato i permessi gratuiti', `La prova comprende ${lim} permessi. Per analizzarne altri attiva un abbonamento.`]
     : richieste ? ['Permessi gratuiti insufficienti', `Hai scelto ${richieste} foto, ma la prova ne consente ancora ${r}. Togli ${richieste-r} foto oppure attiva un abbonamento.`]
     : ["Attiva l'abbonamento", "Con l'abbonamento puoi analizzare permessi senza limiti."];
   $('#pay').innerHTML = `<div class="pay">
@@ -729,23 +822,17 @@ function openPay(richieste){
     <div class="plans">${Object.entries(PIANI).map(([k,v])=>`<label class="pl"><input type="radio" name="piano" value="${k}" ${k==='anno'?'checked':''}>
       <div class="n">${v.nome}</div><div class="pr num">${v.prezzo}<small>${v.per}</small></div><div class="d">${v.d}</div></label>`).join('')}</div>
     <ul class="inc">${['Permessi senza limiti','Cronologia delle analisi','Esportazione dei risultati in Excel','Disdetta in qualsiasi momento'].map(t=>`<li>${ICON.check}${t}</li>`).join('')}</ul>
-    <button class="btn pri" data-pay="buy">Paga e attiva</button>
-    <p class="note">Versione demo: non viene addebitato nulla.</p>
+    <button class="btn pri" data-pay="buy" disabled>Pagamento online non ancora disponibile</button>
+    <p class="note">Il pagamento con carta verrà attivato a breve.</p>
   </div>`;
   $('#pay').classList.add('on');
-  $('#pay [data-pay="buy"]').focus();
 }
 const closePay = () => $('#pay').classList.remove('on');
 $('#pay').addEventListener('click', e => {
   if (e.target.id === 'pay' || e.target.closest('[data-pay="close"]')) return closePay();
   const rb = e.target.closest('[data-pay="reg"]'); if (rb) return sendReg(rb);
-  if (e.target.closest('[data-pay="buy"]')){
-    const tipo = $('#pay input[name="piano"]:checked').value;
-    piano = {tipo, dal: Date.now()}; lsSet('spaziConfinati.piano', piano);
-    closePay(); renderPlan(); render(); toast(`Piano ${PIANI[tipo].nome} attivato (demo, nessun pagamento).`);
-  }
 });
-renderPlan();
+initAuth();
 
 /* ---------- aggiunta dei permessi al Foglio1 (tramite server.py) ---------- */
 const isoD = d0 => { if (!d0) return ''; const d = new Date(new Date(d0).getTime() + 12*36e5);   // evita lo slittamento di un giorno per il fuso
@@ -938,9 +1025,14 @@ async function regInBrowser(righe, b){
 }
 
 /* ---------- analisi ---------- */
+let starting = false;
 async function analyze(){
   if (busy || !images.length || !employees.size) return;
-  if (images.length > rimasti()) return openPay(images.length);
+  if (starting) return;
+  starting = true;
+  const okPerm = await chiediPermessi(images.length);
+  starting = false;
+  if (!okPerm) return;
   const files = images; images = [];
   busy = true; results = []; filter = 'all'; sessionId = Date.now();
   pending = files.map(f=>({url:f._url, name:f.name}));
@@ -970,7 +1062,7 @@ async function analyze(){
       r.codes = mergeCodes([codesIn(crop.data.text), r.codes]);
       r.testo += '\n----- tabella nominativi -----\n' + crop.data.text;
       r.file = files[i].name; r.url = await thumb(files[i]);
-      results.push(r); if (!piano){ usati++; lsSet('spaziConfinati.prova', usati); renderPlan(); }
+      results.push(r);
       progress.step = step; render(); saveSession();
     }
     await worker.terminate();
@@ -1011,7 +1103,7 @@ function viewUpload(){
     ${n ? `
       <div class="picked">${images.map((f,i)=>`<div class="ph"><img src="${f._url}" alt="" data-act="zoom"><div class="fn">${esc(f.name)}</div><button data-act="rm" data-i="${i}" aria-label="Togli foto">${ICON.x}</button></div>`).join('')}</div>
       <div class="go-bar">
-        <span class="info">${plur(n,'foto selezionata','foto selezionate')}${piano ? '' : ` · ${rimasti()} gratuite rimaste`}</span>
+        <span class="info">${plur(n,'foto selezionata','foto selezionate')}${!account || account.attivo ? '' : ` · ${rimasti()} gratuite rimaste`}</span>
         <button class="btn txt" data-act="clear">Togli tutte</button>
         <button class="btn pri" data-act="go" ${noXl?'disabled':''}>Analizza ${n} foto</button>
       </div>` : ''}`;

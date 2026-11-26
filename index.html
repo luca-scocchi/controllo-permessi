@@ -372,7 +372,7 @@ pre{white-space:pre-wrap;font:12px/1.55 "IBM Plex Mono",Consolas,monospace;color
         <div class="x-ico"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13l4 5M12 13l-4 5"/></svg></div>
         <div style="min-width:0"><div class="x-name" id="xName">Caricamento…</div><div class="x-meta" id="xMeta"></div></div>
       </div>
-      <div class="x-meta" id="xPend" style="color:var(--wa);padding:8px 4px 0"></div>
+      <div class="x-meta" id="xPend" style="padding:8px 4px 0"></div>
       <div class="x-btns">
         <label class="btn sec" style="cursor:pointer"><svg viewBox="0 0 24 24"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/></svg>Aggiorna<input type="file" id="fx" accept=".xlsx,.xls" hidden></label>
         <button class="btn sec" id="xDown" disabled><svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Scarica</button>
@@ -465,13 +465,14 @@ let excelBuf = null, excelName = '', excelMod = '', apiOk = false;
 async function initExcel(){
   // 1) il file nella cartella è la fonte principale: se c'è, si usa sempre quello
   if (await loadFromFolder()) return;
-  // 2) altrimenti (app aperta senza server) la copia salvata nel browser
-  try {
-    const saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
-    if (saved){ await loadExcel({name:saved.name, arrayBuffer:async()=>unb64(saved.data)}, false, saved.quando); return; }
-  } catch(e){}
+  // 2) altrimenti (app online) il registro arriva dall'account dopo l'accesso: vedi syncRegistro()
+  mostraVuoto();
+}
+function mostraVuoto(){
+  excelBuf = null; excelName = ''; employees.clear(); permitRows = []; permitHeaders = [];
+  $('#xDown').disabled = true; $('#dlEmp').innerHTML = '';
   $('#xName').textContent = 'Nessun registro';
-  $('#xMeta').textContent = 'Premi "Aggiorna" e scegli il file Excel';
+  $('#xMeta').textContent = account ? 'Premi "Aggiorna" e scegli il file Excel' : 'Accedi per vedere il tuo registro';
   render();
 }
 async function loadFromFolder(){
@@ -498,16 +499,13 @@ async function checkFolder(){
 }
 addEventListener('focus', checkFolder);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkFolder(); });
-fetch('api/stato', {cache:'no-store'}).then(r => r.ok && r.json()).then(j => { apiOk = !!(j && j.ok); render(); }).catch(()=>{});
+const apiPronto = fetch('api/stato', {cache:'no-store'}).then(r => r.ok && r.json()).then(j => { apiOk = !!(j && j.ok); render(); }).catch(()=>{});
 
 async function loadExcel(file, remember, quando){
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, {cellDates:true});   // si ferma qui se il file non è un Excel valido
-  if (remember){
-    quando = quando || Date.now();
-    try { localStorage.setItem(LS_KEY, JSON.stringify({name:file.name, data:b64(buf), quando})); }
-    catch(e){ toast('Il file è troppo grande per essere memorizzato: andrà ricaricato al prossimo avvio.'); }
-  }
+  // registro cambiato: si salva nell'account (ogni account ha il suo registro)
+  if (remember && uid) salvaCloud(buf, file.name, quando || Date.now());
   excelBuf = buf; excelName = file.name; $('#xDown').disabled = false;
   employees.clear(); permitRows = []; permitHeaders = [];
   for (const name of wb.SheetNames){
@@ -680,16 +678,17 @@ const strip = r => ({file:r.file, url:r.url, permesso:r.permesso, data:r.data, c
 async function saveSession(){
   if (!sessionId || !results.length) return;
   try {
-    await store('readwrite', s => s.put({id:sessionId, quando:new Date(sessionId), risultati:results.map(strip)}));
-    const all = await store('readonly', s => s.getAllKeys());
-    for (const k of all.sort((a,b)=>b-a).slice(MAX_HIST)) await store('readwrite', s => s.delete(k));
+    if (!uid && !excelMod) return;
+    await store('readwrite', s => s.put({id:sessionId, uid, quando:new Date(sessionId), risultati:results.map(strip)}));
+    const mie = (await store('readonly', s => s.getAll())).filter(h => h.uid === uid).map(h => h.id);
+    for (const k of mie.sort((a,b)=>b-a).slice(MAX_HIST)) await store('readwrite', s => s.delete(k));
   } catch(e){ console.warn('cronologia non salvata', e); }
   renderHistory();
 }
 const histTitle = h => { const p = h.risultati.map(r=>r.permesso||'?'); return p.slice(0,3).join(', ') + (p.length>3?` +${p.length-3}`:''); };
 async function renderHistory(){
   let list = [];
-  try { list = await store('readonly', s => s.getAll()); } catch(e){}
+  try { list = (await store('readonly', s => s.getAll())).filter(h => uid && h.uid === uid); } catch(e){}
   list.sort((a,b)=>b.id-a.id);
   $('#histClear').style.visibility = list.length ? 'visible' : 'hidden';
   if (!list.length){ $('#hist').innerHTML = '<div class="h-empty">Nessuna analisi salvata.</div>'; return; }
@@ -719,13 +718,16 @@ $('#hist').addEventListener('click', async e => {
   }
   if (!item || busy) return;
   const h = await store('readonly', s => s.get(+item.dataset.id));
+  if (!h || h.uid !== uid) return;
   sessionId = h.id; filter = 'all'; images = [];
   results = h.risultati.map(r => ({...r, data: r.data ? new Date(r.data) : null}));
   render(); renderHistory(); closeNav(); $('#scroll').scrollTop = 0;
 });
 $('#histClear').onclick = async () => {
   if (!confirm('Eliminare tutte le analisi salvate?')) return;
-  await store('readwrite', s => s.clear()); newAnalysis(); renderHistory();
+  const mie = (await store('readonly', s => s.getAll())).filter(h => h.uid === uid);
+  for (const h of mie) await store('readwrite', s => s.delete(h.id));
+  newAnalysis(); renderHistory();
 };
 
 /* ---------- navigazione ---------- */
@@ -753,6 +755,103 @@ addEventListener('dragenter', e => { if (!busy && [...e.dataTransfer.types].incl
 addEventListener('dragleave', () => { if (--dragN<=0){ dragN=0; $('.drop')?.classList.remove('over'); }});
 addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); dragN=0; $('.drop')?.classList.remove('over'); if (!busy) addImages([...e.dataTransfer.files]); });
+
+/* ---------- registro salvato nell'account (privato: ogni account vede solo il suo) ---------- */
+// File in Supabase Storage: registri/<id utente>/registro.xlsx. Nome, data e impronta nella tabella "registri".
+// Le regole del database impediscono a un account di leggere o scrivere il registro di un altro.
+const XMIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+let uid = null, cloudInfo = null, cloudQ = Promise.resolve(), excelInit = null;
+const percorso = () => `${uid}/registro.xlsx`;
+const cacheKey = () => `${LS_KEY}.${uid}`;
+async function hashBuf(buf){ const h = await crypto.subtle.digest('SHA-256', buf); return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join(''); }
+function scriviCache(buf, name, quando, hash){ try { localStorage.setItem(cacheKey(), JSON.stringify({name, data:b64(buf), quando, hash})); } catch(e){} }
+function leggiCache(){ try { return JSON.parse(localStorage.getItem(cacheKey()) || 'null'); } catch(e){ return null; } }
+function statoCloud(st, msg){
+  const el = $('#xPend'); if (!el) return;
+  const T = {sync:['Sincronizzazione con l\'account…','var(--mut)'], saving:['Salvataggio nell\'account…','var(--mut)'],
+             ok:['Salvato nel tuo account','var(--ok)'], err:['Non salvato nell\'account: ' + (msg || 'errore') + '. Riprova o ricarica la pagina.','var(--ko)']};
+  const t = T[st]; el.textContent = t ? t[0] : ''; el.style.color = t ? t[1] : '';
+}
+function salvaCloud(buf, nome, quando){
+  if (!uid || !sb) return Promise.resolve();
+  const mio = uid;
+  cloudQ = cloudQ.then(async () => {
+    if (uid !== mio) return;
+    const hash = await hashBuf(buf);
+    scriviCache(buf, nome, quando, hash);
+    if (cloudInfo && cloudInfo.hash === hash) return statoCloud('ok');
+    statoCloud('saving');
+    const {error: e1} = await sb.storage.from('registri').upload(percorso(), new Blob([buf], {type:XMIME}), {upsert:true, contentType:XMIME, cacheControl:'0'});
+    if (e1) throw new Error(e1.message);
+    const riga = {user_id:mio, nome, aggiornato:new Date(quando).toISOString(), hash, dimensione:buf.byteLength};
+    const {error: e2} = await sb.from('registri').upsert(riga);
+    if (e2) throw new Error(e2.message);
+    cloudInfo = riga; statoCloud('ok');
+  }).catch(e => { console.error(e); statoCloud('err', e.message); });
+  return cloudQ;
+}
+async function scaricaCloud(){
+  const {data, error} = await sb.storage.from('registri').download(percorso());
+  if (error) throw new Error(error.message);
+  return data.arrayBuffer();
+}
+// dopo l'accesso: porta il registro dell'account nell'app (online) o lo allinea con il file della cartella (PC)
+async function syncRegistro(){
+  const {data:{user}} = await sb.auth.getUser();
+  uid = user?.id || null; if (!uid) return;
+  await excelInit; await apiPronto;
+  statoCloud('sync');
+  try {
+    const {data:info, error} = await sb.from('registri').select('nome,aggiornato,hash').maybeSingle();
+    if (error) throw new Error(error.message);
+    cloudInfo = info;
+    await adottaCronologia(); renderHistory();
+    if (excelMod){                       // PC con avvia_app.bat: il file della cartella
+      const tF = new Date(excelMod).getTime();
+      if (info && excelBuf && info.hash === await hashBuf(excelBuf)) return statoCloud('ok');
+      if (info && new Date(info.aggiornato).getTime() > tF + 2000){
+        const buf = await scaricaCloud();
+        if (apiOk){
+          const res = await fetch('api/registro', {method:'POST', body:new Blob([buf])});
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).errore || 'salvataggio nella cartella non riuscito');
+          await loadFromFolder();
+          toast('Ho portato nel file della cartella le modifiche fatte online. La versione precedente è in backup_registro.');
+        } else await loadExcel({name:info.nome, arrayBuffer:async () => buf}, false);
+        return statoCloud('ok');
+      }
+      if (excelBuf) await salvaCloud(excelBuf, excelName, tF);
+      return;
+    }
+    if (info){                            // online: registro dell'account
+      const c = leggiCache();
+      if (c && c.hash === info.hash) await loadExcel({name:c.name, arrayBuffer:async () => unb64(c.data)}, false, c.quando);
+      else {
+        const buf = await scaricaCloud(), q = new Date(info.aggiornato).getTime();
+        await loadExcel({name:info.nome, arrayBuffer:async () => buf}, false, q);
+        scriviCache(buf, info.nome, q, info.hash);
+      }
+      return statoCloud('ok');
+    }
+    // nessun registro nell'account: il registro salvato in questo browser prima dell'aggiornamento diventa di questo account
+    const vecchio = (() => { try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch(e){ return null; } })();
+    if (vecchio){
+      const buf = unb64(vecchio.data);
+      await loadExcel({name:vecchio.name, arrayBuffer:async () => buf}, true, vecchio.quando || Date.now());
+      await cloudQ;
+      try { localStorage.removeItem(LS_KEY); localStorage.removeItem('spaziConfinati.daScaricare'); } catch(e){}
+      toast('Il registro di questo browser è stato salvato nel tuo account.');
+      return;
+    }
+    mostraVuoto(); statoCloud('');
+  } catch(e){ console.error(e); statoCloud('err', e.message); }
+}
+// cronologia: le analisi salvate prima dell'aggiornamento diventano dell'account che accede per primo
+async function adottaCronologia(){
+  try {
+    const all = await store('readonly', s => s.getAll());
+    for (const h of all) if (!h.uid){ h.uid = uid; await store('readwrite', s => s.put(h)); }
+  } catch(e){}
+}
 
 /* ---------- account, prova gratuita e abbonamento ---------- */
 // Il conteggio dei permessi è sul server (Supabase): il browser chiede solo il permesso di procedere.
@@ -785,7 +884,13 @@ function renderPlan(){
       <button class="btn ${r?'sec':'pri'}" id="planGo">Attiva abbonamento</button>${esci}`;
     $('#planGo').onclick = () => openPay();
   }
-  $('#logout').onclick = async () => { await sb.auth.signOut(); account = null; showAuth(); renderPlan(); };
+  $('#logout').onclick = async () => {
+    await cloudQ; await sb.auth.signOut({scope:'local'});
+    account = null; uid = null; cloudInfo = null;
+    results = []; images = []; sessionId = null; filter = 'all';
+    if (!excelMod) mostraVuoto();          // online: il registro di questo account sparisce dallo schermo
+    statoCloud(''); renderHistory(); showAuth(); renderPlan();
+  };
 }
 
 /* schermata di accesso */
@@ -872,7 +977,7 @@ async function doAuth(e){
   }
   if (error){ err.textContent = /same|different/i.test(error.message) ? 'La nuova password deve essere diversa da quella vecchia.' : authMsg(error.message); b.disabled = false; return; }
   if (m === 'newpwd'){ history.replaceState(null, '', location.pathname + location.search); authMode = 'login'; }
-  try { await loadAccount(); hideAuth(); if (m === 'newpwd') toast('Password cambiata.'); sincronizzaPagamenti(); }
+  try { await loadAccount(); hideAuth(); if (m === 'newpwd') toast('Password cambiata.'); sincronizzaPagamenti(); syncRegistro(); }
   catch(x){ err.textContent = 'Accesso riuscito ma non riesco a leggere l\'account: ' + x.message; b.disabled = false; }
 }
 async function loadAccount(){
@@ -894,6 +999,7 @@ async function initAuth(){
   try { await loadAccount(); }
   catch(e){ return showAuth('Sessione scaduta: accedi di nuovo.'); }
   sincronizzaPagamenti();
+  syncRegistro();
 }
 // prima di analizzare: il server scala i permessi dalla prova (o dà il via libera se il piano è attivo)
 async function chiediPermessi(n){
@@ -996,11 +1102,11 @@ function openReg(){
     <button class="icon-btn close" data-pay="close" aria-label="Chiudi">${ICON.x}</button>
     <h2 id="payH">Aggiungi al registro</h2>
     <p>${apiOk ? `I permessi selezionati vengono scritti come nuove righe nel Foglio1 di ${esc(DEFAULT_XLSX)}. Prima viene salvata una copia del file in backup_registro.`
-               : `I permessi selezionati vengono aggiunti come nuove righe nel Foglio1 del registro salvato nell'app.`}</p>
+               : `I permessi selezionati vengono aggiunti come nuove righe nel Foglio1 del registro salvato nel tuo account.`}</p>
     <div class="err" id="regErr"></div>
     <div class="reg-l">${items}</div>
     <button class="btn pri" data-pay="reg" ${n?'':'disabled'}>${n ? `Aggiungi ${plur(n,'permesso','permessi')}` : 'Nessun permesso da aggiungere'}</button>
-    <p class="note">${apiOk ? 'Il file deve essere chiuso in Excel.' : 'Il file Excel lo ottieni quando vuoi con Scarica, nella barra laterale.'}</p>
+    <p class="note">${apiOk ? 'Il file deve essere chiuso in Excel.' : 'Il registro si salva nel tuo account. Il file Excel lo ottieni quando vuoi con Scarica.'}</p>
   </div>`;
   $('#pay').classList.add('on');
   updRegBtn();
@@ -1045,9 +1151,7 @@ function segnaModifica(n = 1){ daScaricare = n ? daScaricare + n : 0; try { loca
 function mostraModifiche(){
   const b = $('#xDown'), el = $('#xPend');
   if (!b || !el) return;
-  const n = apiOk ? 0 : daScaricare;
-  b.className = 'btn ' + (n ? 'pri' : 'sec');
-  el.textContent = n ? `${plur(n, 'modifica non ancora scaricata', 'modifiche non ancora scaricate')}. Premi Scarica per avere il file aggiornato.` : '';
+  b.className = 'btn sec';   // il registro si salva da solo nell'account: non c'è niente da scaricare per non perderlo
 }
 /* ---------- nuova persona nel registro (foglio delle matricole) ---------- */
 let nuovoAperto = '', nuovoCodice = '';
@@ -1532,7 +1636,7 @@ function exportXlsx(){
 
 renderHistory();
 render();
-initExcel();
+excelInit = initExcel();
 </script>
 </body>
 </html>

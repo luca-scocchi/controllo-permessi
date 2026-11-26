@@ -1028,6 +1028,11 @@ async function sendReg(b){
   }
 }
 
+function scaricaFile(buf, name){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
 /* ---------- nuova persona nel registro (foglio delle matricole) ---------- */
 let nuovoAperto = '', nuovoCodice = '';
 function formNuovo(i, j, r){
@@ -1038,7 +1043,7 @@ function formNuovo(i, j, r){
     <label>Nome e cognome<input id="nNome" autocomplete="off" placeholder="Come nel registro, es. ROSSI MARIO"></label>
     <label>Inizio esperienza<input type="date" id="nData"></label>
     <div class="nerr" id="nErr"></div>
-    <div class="nb"><span class="x-meta">Viene aggiunta una riga al foglio delle matricole. Senza data di inizio esperienza la persona conta come meno di 3 anni.</span>
+    <div class="nb"><span class="x-meta">Viene aggiunta una riga al foglio delle matricole${apiOk ? ' del file nella cartella' : ' e scaricato il registro aggiornato'}. Senza data di inizio esperienza la persona conta come meno di 3 anni.</span>
       <button class="btn" data-act="nuovoNo" data-i="${i}" data-j="${j}">Annulla</button>
       <button class="btn pri" data-act="nuovoOk" data-i="${i}" data-j="${j}">Aggiungi al registro</button></div>
   </div>`;
@@ -1049,6 +1054,8 @@ async function salvaNuovo(i, j, b){
   if (!/^\d{8}$/.test(code)) return err.textContent = 'La matricola deve avere 8 cifre.';
   if (employees.has(code)) return err.textContent = `La matricola ${code} è già nel registro: ${employees.get(code).nome}.`;
   if (!nome) return err.textContent = 'Scrivi nome e cognome.';
+  const gia = [...employees].find(([k, e]) => norm(e.nome) === norm(nome));
+  if (gia){ err.innerHTML = `${esc(nome)} è già nel registro con la matricola ${gia[0]}. <button class="lnk2" data-act="fix" data-i="${i}" data-j="${j}" data-code="${gia[0]}">Usa ${gia[0]}</button>`; return; }
   b.disabled = true; b.textContent = 'Salvataggio…';
   try {
     const out = await aggiungiDipendenteXlsx(code, nome, data);
@@ -1059,11 +1066,13 @@ async function salvaNuovo(i, j, b){
       await loadFromFolder();
     } else {
       await loadExcel({name: excelName || DEFAULT_XLSX, arrayBuffer: async () => out}, true);
+      scaricaFile(out, excelName || DEFAULT_XLSX);
     }
     results[i].codes[j].code = code;
     nuovoAperto = ''; nuovoCodice = '';
     render(); saveSession();
-    toast(`${nome} aggiunto al registro con la matricola ${code}.` + (apiOk ? '' : ' Con "Scarica" ottieni il file aggiornato.'));
+    toast(apiOk ? `${nome} aggiunto al registro con la matricola ${code}.`
+                : `${nome} aggiunto al registro. Ho scaricato il registro aggiornato: usalo al posto del file vecchio.`);
   } catch(x){
     console.error(x); err.textContent = x.message; b.disabled = false; b.textContent = 'Aggiungi al registro';
   }
@@ -1236,9 +1245,7 @@ async function regInBrowser(righe, b){
     const out = await zip.generateAsync({type:'arraybuffer', compression:'DEFLATE'});
     const name = excelName || DEFAULT_XLSX;
     await loadExcel({name, arrayBuffer:async()=>out}, true);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([out], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
-    a.download = name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+    scaricaFile(out, name);
     closePay(); saveSession();
     const sk = saltati.length ? ` Saltati: ${saltati.map(s=>`${s.permesso||'?'} (${s.motivo})`).join(', ')}.` : '';
     toast(`${plur(aggiunti.length,'permesso aggiunto','permessi aggiunti')} al Foglio1. Registro aggiornato scaricato.${sk}`);
@@ -1352,7 +1359,7 @@ function viewResults(){
     <div class="res-head">
       <div><h1 class="page-h">${busy ? 'Lettura in corso' : 'Risultati'}</h1>
         <p class="page-s">${plur(n,'permesso','permessi')}${busy?'':` · ${cnt.ok} conformi · ${cnt.wa} da verificare · ${cnt.ko} non conformi`}</p></div>
-      ${busy ? '' : `<div class="acts">${employees.size ? `<button class="btn sec" data-act="reg">${ICON.plus}Aggiungi al registro</button>` : ''}<button class="btn sec" data-act="export">${ICON.down}Esporta Excel</button><button class="btn pri" data-act="new">${ICON.plus}Nuova analisi</button></div>`}
+      ${busy ? '' : `<div class="acts">${employees.size ? `<button class="btn sec" data-act="reg">${ICON.plus}Aggiungi al registro</button>` : ''}<button class="btn sec" data-act="export">${ICON.down}Esporta risultati</button><button class="btn pri" data-act="new">${ICON.plus}Nuova analisi</button></div>`}
     </div>
     ${busy ? `<div class="prog"><div class="prog-t"><span class="spin"></span><span id="progStep">${esc(progress.step)}</span><span class="num">${results.length} di ${progress.n} fatte</span></div><div class="bar"><i id="progBar" style="width:${Math.round(results.length/progress.n*100)}%"></i></div></div>` : ''}
     ${results.length ? `<div class="filters">${flt('all','Tutti')}${flt('ok','Conformi')}${flt('wa','Da verificare')}${flt('ko','Non conformi')}</div>` : ''}
